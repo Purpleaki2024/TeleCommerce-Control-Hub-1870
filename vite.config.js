@@ -14,16 +14,6 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: true,
     rollupOptions: {
-      external: [
-        'crypto',
-        'path',
-        'os',
-        'stream',
-        'util',
-        'jsonwebtoken',
-        'bcryptjs',
-        'sqlite3'
-      ],
       output: {
         manualChunks: {
           vendor: ['react', 'react-dom', 'react-router-dom'],
