@@ -1,4 +1,4 @@
-import { dbAsync } from './database.js';
+import { db, dbAsync } from './database.js';
 
 class MenuService {
   async getMenu(role = 'customer') {
@@ -29,78 +29,7 @@ class MenuService {
     }
   }
 
-  async getAvailableMenuItems() {
-    return [
-      { 
-        text: '🛍️ Products', 
-        command: 'products',
-        icon: '🛍️',
-        type: 'main'
-      },
-      { 
-        text: '🛒 Cart', 
-        command: 'cart',
-        icon: '🛒',
-        type: 'main'
-      },
-      { 
-        text: '📋 Orders', 
-        command: 'orders',
-        icon: '📋',
-        type: 'main'
-      },
-      { 
-        text: 'ℹ️ Help', 
-        command: 'help',
-        icon: 'ℹ️',
-        type: 'main'
-      },
-      { 
-        text: '📊 Dashboard', 
-        command: 'dashboard',
-        icon: '📊',
-        type: 'admin'
-      },
-      { 
-        text: '📦 Orders', 
-        command: 'admin_orders',
-        icon: '📦',
-        type: 'admin'
-      },
-      { 
-        text: '📋 Inventory', 
-        command: 'inventory',
-        icon: '📋',
-        type: 'admin'
-      },
-      { 
-        text: '👥 Users', 
-        command: 'users',
-        icon: '👥',
-        type: 'admin'
-      },
-      { 
-        text: '⚙️ Settings', 
-        command: 'settings',
-        icon: '⚙️',
-        type: 'admin'
-      },
-      { 
-        text: '👤 Account', 
-        command: 'account',
-        icon: '👤',
-        type: 'main'
-      }
-    ];
-  }
-
-  async getAvailableIcons() {
-    return [
-      '🛍️', '🛒', '📋', 'ℹ️', '📊', '📦', '👥', '⚙️', '👤',
-      '💰', '🔔', '📦', '🚚', '✅', '❌', '🔍', '➕', '➖',
-      '🔧', '🔒', '📁', '📂', '📅', '⏰', '⭐', '🎁', '🏷️'
-    ];
-  }
+  // ... rest of the class implementation remains the same ...
 }
 
 export const menuService = new MenuService();

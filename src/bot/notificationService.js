@@ -1,2 +1,2 @@
-import { dbAsync } from './database.js';
+import { db, dbAsync } from './database.js';
 // ... rest of the file remains the same ...
