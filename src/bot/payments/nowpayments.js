@@ -1,43 +1,50 @@
-import axios from 'axios';
-import config from '../config.js';
-import db from '../database.js';
-
+// Update payment service with enhanced security and validation
 class PaymentService {
   constructor() {
-    this.api = axios.create({
-      baseURL: 'https://api.nowpayments.io/v1',
-      headers: {
-        'x-api-key': config.nowPaymentsApiKey,
-        'Content-Type': 'application/json'
+    // ... existing constructor ...
+
+    // Add additional validation
+    this.requiredFields = ['price_amount', 'price_currency', 'pay_currency'];
+    this.allowedCurrencies = ['USD', 'EUR', 'BTC', 'ETH', 'USDT'];
+  }
+
+  validatePaymentData(data) {
+    // Check required fields
+    for (const field of this.requiredFields) {
+      if (!data[field]) {
+        throw new Error(`Missing required field: ${field}`);
       }
-    });
-    this.supportedCurrencies = null;
-  }
-
-  async initialize() {
-    try {
-      const { data } = await this.api.get('/currencies');
-      this.supportedCurrencies = data.currencies;
-    } catch (error) {
-      console.error('Failed to initialize payment service:', error.response?.data || error.message);
-      throw new Error('Payment service initialization failed');
     }
+
+    // Validate currency
+    if (!this.allowedCurrencies.includes(data.price_currency)) {
+      throw new Error('Invalid price currency');
+    }
+
+    // Validate amount
+    if (isNaN(data.price_amount) || data.price_amount <= 0) {
+      throw new Error('Invalid price amount');
+    }
+
+    return true;
   }
 
-  async createPayment(userId, productId, amount) {
-    try {
-      const { data } = await this.api.post('/payment', {
-        price_amount: amount,
-        price_currency: 'usd',
-        pay_currency: 'btc',
-        order_id: `${userId}_${productId}_${Date.now()}`,
-        order_description: `Product ID: ${productId}`,
-        ipn_callback_url: `${config.webhookUrl}/api/payment-webhook`,
-        success_url: `https://t.me/${config.botUsername}`,
-        cancel_url: `https://t.me/${config.botUsername}`
-      });
+  async createPayment(userId, orderId, amount) {
+    const paymentData = {
+      price_amount: amount,
+      price_currency: 'USD',
+      pay_currency: 'BTC',
+      order_id: `${userId}_${orderId}_${Date.now()}`,
+      order_description: `Order ID: ${orderId}`,
+      ipn_callback_url: `${config.webhookUrl}/api/payment-webhook`,
+      success_url: `https://t.me/${config.botUsername}`,
+      cancel_url: `https://t.me/${config.botUsername}`
+    };
 
-      await this.savePayment(data, userId, productId);
+    try {
+      this.validatePaymentData(paymentData);
+      const { data } = await this.api.post('/payment', paymentData);
+      await this.savePayment(data, userId, orderId);
       return data;
     } catch (error) {
       console.error('Payment creation failed:', error.response?.data || error.message);
@@ -45,100 +52,29 @@ class PaymentService {
     }
   }
 
-  async savePayment(payment, userId, productId) {
-    return new Promise((resolve, reject) => {
-      db.run(
-        `INSERT INTO payments (
-          payment_id, user_id, product_id, status,
-          pay_amount, pay_currency, price_amount,
-          created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
-        [
-          payment.payment_id,
-          userId,
-          productId,
-          'pending',
-          payment.pay_amount,
-          payment.pay_currency,
-          payment.price_amount
-        ],
-        (err) => {
-          if (err) reject(err);
-          else resolve();
-        }
-      );
-    });
-  }
-
-  async getPaymentStatus(paymentId) {
+  verifyIPNSignature(payload, signature) {
     try {
-      const { data } = await this.api.get(`/payment/${paymentId}`);
-      return data;
+      const crypto = require('crypto');
+      const sortedPayload = Object.keys(payload)
+        .sort()
+        .reduce((acc, key) => {
+          acc[key] = payload[key];
+          return acc;
+        }, {});
+      
+      const hmac = crypto.createHmac('sha512', config.nowPaymentsIpnSecret);
+      const calculatedSignature = hmac
+        .update(JSON.stringify(sortedPayload))
+        .digest('hex');
+      
+      return signature === calculatedSignature;
     } catch (error) {
-      console.error('Failed to get payment status:', error.response?.data || error.message);
-      throw new Error('Payment status check failed');
+      console.error('Signature verification failed:', error);
+      return false;
     }
   }
 
-  async updatePaymentStatus(paymentId, status) {
-    return new Promise((resolve, reject) => {
-      db.run(
-        'UPDATE payments SET status = ?, updated_at = datetime("now") WHERE payment_id = ?',
-        [status, paymentId],
-        async (err) => {
-          if (err) {
-            reject(err);
-            return;
-          }
-
-          if (status === 'finished' || status === 'confirmed') {
-            try {
-              await this.handleSuccessfulPayment(paymentId);
-              resolve();
-            } catch (error) {
-              reject(error);
-            }
-          } else {
-            resolve();
-          }
-        }
-      );
-    });
-  }
-
-  async handleSuccessfulPayment(paymentId) {
-    return new Promise((resolve, reject) => {
-      db.get(
-        'SELECT product_id, user_id FROM payments WHERE payment_id = ?',
-        [paymentId],
-        async (err, payment) => {
-          if (err) {
-            reject(err);
-            return;
-          }
-
-          // Update product stock
-          db.run(
-            'UPDATE products SET stock = stock - 1 WHERE id = ? AND stock > 0',
-            [payment.product_id],
-            (err) => {
-              if (err) {
-                reject(err);
-                return;
-              }
-              resolve(payment);
-            }
-          );
-        }
-      );
-    });
-  }
-
-  verifyIPNSignature(payload, signature) {
-    // Implement signature verification based on NOWPayments documentation
-    // This is a placeholder - implement actual verification logic
-    return true;
-  }
+  // ... rest of the existing methods ...
 }
 
 export const paymentService = new PaymentService();

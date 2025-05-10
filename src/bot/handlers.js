@@ -1,200 +1,130 @@
-// Add to existing handlers
-export const handleFloatingMenu = async (bot, msg) => {
+// Update menu handlers to support submenus
+export const handleFloatingMenu = async (bot, msg, isAdmin = false) => {
   const chatId = msg.chat.id;
-  
-  const keyboard = {
-    resize_keyboard: true,
-    one_time_keyboard: false,
-    keyboard: [
-      [{ text: '🛍️ Products' }, { text: '🛒 Cart' }],
-      [{ text: '📋 Orders' }, { text: 'ℹ️ Help' }],
-      [{ text: '👤 Account' }]
-    ]
-  };
-
-  await bot.sendMessage(
-    chatId,
-    'Main Menu - Select an option:',
-    { reply_markup: keyboard }
-  );
-};
-
-export const handleOrderHistory = async (bot, msg) => {
-  const chatId = msg.chat.id;
+  const role = isAdmin ? 'admin' : 'customer';
   
   try {
-    const orders = await new Promise((resolve, reject) => {
-      db.all(
-        `SELECT o.id, o.total_amount, o.status, o.created_at, 
-         COUNT(oi.id) as item_count
-         FROM orders o
-         JOIN order_items oi ON o.id = oi.order_id
-         WHERE o.user_id = ?
-         GROUP BY o.id
-         ORDER BY o.created_at DESC
-         LIMIT 10`,
-        [chatId],
-        (err, rows) => {
-          if (err) reject(err);
-          else resolve(rows);
-        }
-      );
-    });
+    const menuItems = await menuService.getMenu(role);
+    
+    // Build keyboard structure
+    const keyboard = {
+      resize_keyboard: true,
+      one_time_keyboard: false,
+      keyboard: []
+    };
 
-    if (orders.length === 0) {
+    // Group items into rows of 2
+    for (let i = 0; i < menuItems.length; i += 2) {
+      const row = menuItems.slice(i, i + 2).map(item => ({
+        text: item.text
+      }));
+      keyboard.keyboard.push(row);
+    }
+
+    await bot.sendMessage(
+      chatId,
+      isAdmin ? '👑 Admin Menu' : 'Main Menu',
+      { reply_markup: keyboard }
+    );
+  } catch (error) {
+    console.error('Error sending menu:', error);
+    await bot.sendMessage(
+      chatId,
+      'Failed to load menu. Please try again.'
+    );
+  }
+};
+
+export const handleSubMenu = async (bot, msg, parentCommand) => {
+  const chatId = msg.chat.id;
+  const isAdmin = config.adminIds.includes(chatId);
+  
+  try {
+    const menuItems = await menuService.getMenu(isAdmin ? 'admin' : 'customer');
+    const parentItem = menuItems.find(item => item.command === parentCommand);
+    
+    if (!parentItem?.submenu) {
       await bot.sendMessage(
         chatId,
-        "📋 You don't have any orders yet. Start shopping to see your order history here!"
+        'No submenu available for this option'
       );
       return;
     }
 
-    let message = '📋 *Your Recent Orders*\n\n';
-    orders.forEach(order => {
-      message += `🆔 *Order #${order.id}*\n`;
-      message += `💰 Total: $${order.total_amount.toFixed(2)}\n`;
-      message += `📅 Date: ${new Date(order.created_at).toLocaleDateString()}\n`;
-      message += `📦 Items: ${order.item_count}\n`;
-      message += `🟢 Status: ${order.status}\n\n`;
-    });
-
     const keyboard = {
-      inline_keyboard: [
-        ...orders.map(order => [
-          { 
-            text: `📦 View Order #${order.id}`,
-            callback_data: `view_order_${order.id}`
-          }
-        ]),
-        [
-          { text: '🛍️ Continue Shopping', callback_data: 'continue_shopping' }
-        ]
-      ]
+      resize_keyboard: true,
+      one_time_keyboard: false,
+      keyboard: []
     };
 
-    await bot.sendMessage(
-      chatId,
-      message,
-      {
-        parse_mode: 'Markdown',
-        reply_markup: keyboard
-      }
-    );
-  } catch (error) {
-    console.error('Error fetching orders:', error);
-    await bot.sendMessage(
-      chatId,
-      '❌ Failed to load your order history. Please try again later.'
-    );
-  }
-};
+    // Add back button
+    keyboard.keyboard.push([{ text: '⬅️ Back' }]);
 
-export const handleOrderDetails = async (bot, query, orderId) => {
-  const chatId = query.message.chat.id;
-  
-  try {
-    const [order, items] = await Promise.all([
-      new Promise((resolve, reject) => {
-        db.get(
-          `SELECT * FROM orders WHERE id = ? AND user_id = ?`,
-          [orderId, chatId],
-          (err, row) => {
-            if (err) reject(err);
-            else resolve(row);
-          }
-        );
-      }),
-      new Promise((resolve, reject) => {
-        db.all(
-          `SELECT oi.*, p.name 
-           FROM order_items oi
-           JOIN products p ON oi.product_id = p.id
-           WHERE oi.order_id = ?`,
-          [orderId],
-          (err, rows) => {
-            if (err) reject(err);
-            else resolve(rows);
-          }
-        );
-      })
-    ]);
-
-    if (!order) {
-      await bot.answerCallbackQuery(
-        query.id,
-        { text: 'Order not found', show_alert: true }
-      );
-      return;
+    // Group submenu items into rows of 2
+    for (let i = 0; i < parentItem.submenu.length; i += 2) {
+      const row = parentItem.submenu.slice(i, i + 2).map(item => ({
+        text: item.text
+      }));
+      keyboard.keyboard.push(row);
     }
 
-    let message = `📦 *Order #${order.id}*\n\n`;
-    message += `📅 Date: ${new Date(order.created_at).toLocaleString()}\n`;
-    message += `🟢 Status: ${order.status}\n`;
-    message += `💰 Total: $${order.total_amount.toFixed(2)}\n\n`;
-    message += `*Items Purchased:*\n`;
-
-    items.forEach(item => {
-      message += `➡️ ${item.name} (${item.quantity} × $${item.price_at_purchase.toFixed(2)})\n`;
-      message += `   Subtotal: $${(item.quantity * item.price_at_purchase).toFixed(2)}\n\n`;
-    });
-
-    const keyboard = {
-      inline_keyboard: [
-        [
-          { text: '📋 Back to Orders', callback_data: 'view_orders' },
-          { text: '🛍️ Shop Again', callback_data: 'continue_shopping' }
-        ]
-      ]
-    };
-
-    await bot.editMessageText(
-      message,
-      {
-        chat_id: chatId,
-        message_id: query.message.message_id,
-        parse_mode: 'Markdown',
-        reply_markup: keyboard
-      }
+    await bot.sendMessage(
+      chatId,
+      `${parentItem.text} Menu`,
+      { reply_markup: keyboard }
     );
-
-    await bot.answerCallbackQuery(query.id);
   } catch (error) {
-    console.error('Error fetching order details:', error);
-    await bot.answerCallbackQuery(
-      query.id,
-      { text: 'Failed to load order details', show_alert: true }
+    console.error('Error sending submenu:', error);
+    await bot.sendMessage(
+      chatId,
+      'Failed to load submenu. Please try again.'
     );
   }
 };
 
-// Update the main bot setup to include new handlers
+// Update command setup to handle submenus
 export const setupBotCommands = (bot) => {
   // ... existing command setup ...
 
-  // Add new commands
-  bot.onText(/\/menu/, (msg) => handleFloatingMenu(bot, msg));
-  bot.onText(/\/orders/, (msg) => handleOrderHistory(bot, msg));
+  // Handle back button
+  bot.on('message', async (msg) => {
+    if (msg.text === '⬅️ Back') {
+      await handleFloatingMenu(bot, msg, config.adminIds.includes(msg.chat.id));
+      return;
+    }
+  });
 
-  // Update callback query handler
-  bot.on('callback_query', async (query) => {
+  // Handle submenu items
+  bot.on('message', async (msg) => {
+    if (!msg.text || !msg.reply_markup) return;
+
+    const text = msg.text;
+    const chatId = msg.chat.id;
+    const isAdmin = config.adminIds.includes(chatId);
+
     try {
-      const action = query.data;
+      const menuItems = await menuService.getMenu(isAdmin ? 'admin' : 'customer');
       
-      if (action === 'view_orders') {
-        await handleOrderHistory(bot, query.message);
+      // Check if this is a submenu item
+      for (const item of menuItems) {
+        if (item.submenu) {
+          const subItem = item.submenu.find(sub => sub.text === text);
+          if (subItem) {
+            // Handle submenu command
+            await handleCommand(bot, msg, subItem.command);
+            return;
+          }
+        }
       }
-      else if (action.startsWith('view_order_')) {
-        const orderId = action.split('_')[2];
-        await handleOrderDetails(bot, query, orderId);
-      }
-      // ... existing callback handlers ...
+
+      // Handle main menu items
+      // ... existing menu item handling ...
       
-      await bot.answerCallbackQuery(query.id);
     } catch (error) {
-      console.error('Callback query error:', error);
-      await bot.answerCallbackQuery(
-        query.id, 
-        { text: 'An error occurred', show_alert: true }
+      console.error('Menu command error:', error);
+      await bot.sendMessage(
+        chatId,
+        'Failed to process your request. Please try again.'
       );
     }
   });

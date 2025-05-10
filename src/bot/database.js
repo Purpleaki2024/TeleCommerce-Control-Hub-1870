@@ -1,21 +1,31 @@
-// Add to database initialization
+// Add payment-related tables to database initialization
 db.serialize(() => {
   // ... existing tables ...
 
-  // Failed notifications table
-  db.run(`CREATE TABLE IF NOT EXISTS failed_notifications (
+  // Payments table
+  db.run(`CREATE TABLE IF NOT EXISTS payments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    payment_id TEXT NOT NULL UNIQUE,
     user_id INTEGER NOT NULL,
     order_id INTEGER NOT NULL,
-    error TEXT,
+    amount DECIMAL(10,2) NOT NULL,
+    currency TEXT NOT NULL DEFAULT 'USD',
+    status TEXT NOT NULL DEFAULT 'pending',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    retry_count INTEGER DEFAULT 0
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (order_id) REFERENCES orders(id)
   )`);
 
-  // Notification retry job
-  db.run(`CREATE TABLE IF NOT EXISTS notification_retry_job (
+  // Payment logs table for audit trail
+  db.run(`CREATE TABLE IF NOT EXISTS payment_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    last_run DATETIME,
-    next_run DATETIME DEFAULT datetime('now', '+1 hour')
+    payment_id TEXT NOT NULL,
+    user_id INTEGER,
+    order_id INTEGER,
+    amount DECIMAL(10,2),
+    status TEXT NOT NULL,
+    webhook_data TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`);
 });
